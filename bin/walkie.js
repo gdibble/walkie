@@ -6,11 +6,25 @@ const { request } = require('../src/client')
 program
   .name('walkie')
   .description('P2P communication CLI for AI agents')
-  .version('1.1.0')
+  .version('1.2.0')
   .option('--as <name>', 'Client identity for same-machine multi-agent')
 
 function clientId() {
-  return program.opts().as || process.env.WALKIE_ID || undefined
+  // Explicit identity always wins
+  if (program.opts().as) return program.opts().as
+  if (process.env.WALKIE_ID) return process.env.WALKIE_ID
+
+  // Auto-derive from terminal session (unique per tab/window, stable across commands)
+  const sessionHint = process.env.TERM_SESSION_ID   // macOS Terminal.app
+    || process.env.ITERM_SESSION_ID                  // iTerm2
+    || process.env.WEZTERM_PANE                      // WezTerm
+    || process.env.TMUX_PANE                         // tmux
+    || process.env.WINDOWID                          // X11 terminals
+  if (sessionHint) {
+    return require('crypto').createHash('sha256').update(sessionHint).digest('hex').slice(0, 8)
+  }
+
+  return undefined // falls back to 'default' in daemon
 }
 
 program

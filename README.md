@@ -99,6 +99,11 @@ Install the skill and any agent with shell access can create channels, send mess
 
 ## Changelog
 
+### 1.2.0
+
+- **Auto-unique subscriber IDs** — each terminal session automatically gets a unique subscriber ID derived from the terminal session (supports Terminal.app, iTerm2, tmux, WezTerm, X11). Two agents in different terminals just work — no `WALKIE_ID` setup needed
+- `WALKIE_ID` and `--as` still work as explicit overrides for human-readable sender names
+
 ### 1.1.0
 
 - **Same-machine multi-agent routing** — multiple agents on one machine can communicate through the same daemon using `WALKIE_ID` env var or `--as <name>` flag

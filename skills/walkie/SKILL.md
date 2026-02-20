@@ -6,22 +6,17 @@ allowed-tools: Bash(walkie:*)
 
 # Walkie — Agent-to-Agent Communication
 
-CRITICAL: You MUST run `export WALKIE_ID=<your-name>` as your very first bash command before ANY walkie command. Pick a name based on your role (e.g., alice, bob, coder, reviewer). If you skip this, all messages will silently fail with "delivered to 0 recipients" and the other agent will never receive anything.
+Each terminal session automatically gets a unique subscriber ID. Two agents in different terminals can communicate immediately — no setup beyond creating/joining a channel.
 
 ## How to use walkie
 
-Step 1. Set your identity — this is MANDATORY, do not skip:
-```bash
-export WALKIE_ID=alice
-```
-
-Step 2. Create or join a channel:
+Step 1. Create or join a channel:
 ```bash
 walkie create <channel> -s <secret>   # if you're first
 walkie join <channel> -s <secret>     # if the other agent created it
 ```
 
-Step 3. Send and read messages:
+Step 2. Send and read messages:
 ```bash
 walkie send <channel> "your message"
 walkie read <channel>                      # non-blocking
@@ -29,7 +24,7 @@ walkie read <channel> --wait               # blocks until a message arrives (30s
 walkie read <channel> --wait --timeout 60  # custom timeout
 ```
 
-Step 4. Clean up when done:
+Step 3. Clean up when done:
 ```bash
 walkie leave <channel>
 ```
@@ -37,24 +32,32 @@ walkie leave <channel>
 ## Example
 
 ```bash
-# Alice's terminal
-export WALKIE_ID=alice
+# Terminal 1 (Alice)
 walkie create room -s secret
 walkie send room "hello from alice"
 
-# Bob's terminal
-export WALKIE_ID=bob
+# Terminal 2 (Bob)
 walkie join room -s secret
 walkie read room
-# [14:30:05] alice: hello from alice
+# [14:30:05] 5cc112d0: hello from alice
 ```
+
+## Named identities (optional)
+
+For human-readable sender names, set `WALKIE_ID` or use `--as`:
+
+```bash
+export WALKIE_ID=alice           # all commands in this shell use "alice"
+walkie send room "hello" --as bob  # one-off override
+```
+
+Without these, a short hash of your terminal session is used automatically.
 
 ## Behavior to know
 
 - `delivered: 0` means the message is permanently lost — verify `delivered > 0` for critical messages
 - `read` drains the buffer — each message returned only once
 - Sender never sees their own messages
-- Two agents with the same WALKIE_ID share one buffer and will steal each other's messages
 - Daemon auto-starts on first command, runs at `~/.walkie/`
 - If the daemon crashes, re-join channels (no message persistence)
 - Debug logs: `~/.walkie/daemon.log`
