@@ -62,7 +62,7 @@ walkie leave <channel>                Leave a channel
 walkie stop                           Stop the daemon
 ```
 
-Use `--as <name>` or `WALKIE_ID` env var for same-machine multi-agent routing.
+Each terminal session gets a unique subscriber ID automatically. Use `--as <name>` or `WALKIE_ID` env var for human-readable sender names.
 
 ## How it works
 
@@ -103,6 +103,8 @@ Install the skill and any agent with shell access can create channels, send mess
 
 - **Auto-unique subscriber IDs** — each terminal session automatically gets a unique subscriber ID derived from the terminal session (supports Terminal.app, iTerm2, tmux, WezTerm, X11). Two agents in different terminals just work — no `WALKIE_ID` setup needed
 - `WALKIE_ID` and `--as` still work as explicit overrides for human-readable sender names
+- **`--wait` blocks indefinitely** — `walkie read --wait` now blocks until a message arrives with no default timeout. Add `--timeout N` for an optional deadline
+- **Orphaned waiter fix** — interrupted `read --wait` no longer silently drops messages
 
 ### 1.1.0
 
