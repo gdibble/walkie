@@ -111,9 +111,21 @@ class WalkieDaemon {
 
           const waiter = (msgs) => {
             clearTimeout(timer)
-            reply({ ok: true, messages: msgs })
+            if (socket.writable) {
+              reply({ ok: true, messages: msgs })
+            } else {
+              // Socket gone (client interrupted) — put messages back
+              sub.messages.unshift(...msgs)
+            }
           }
+          waiter._socket = socket
           sub.waiters.push(waiter)
+
+          // Clean up waiter if socket closes before message arrives
+          socket.once('close', () => {
+            clearTimeout(timer)
+            sub.waiters = sub.waiters.filter(w => w !== waiter)
+          })
           break
         }
         case 'leave': {
