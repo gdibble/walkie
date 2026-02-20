@@ -205,22 +205,77 @@
       margin-bottom: 24px;
     }
 
-    .diagram {
+    .diagram-box {
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: 8px;
-      padding: 32px;
-      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
-      font-size: 0.85rem;
-      line-height: 1.6;
-      white-space: pre;
-      overflow-x: auto;
-      text-align: left;
-      display: inline-block;
+      padding: 40px 32px;
     }
 
-    .diagram .green { color: var(--accent); }
-    .diagram .dim { color: var(--muted); }
+    .diagram-topic {
+      text-align: center;
+      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+      font-size: 0.9rem;
+      color: var(--muted);
+      margin-bottom: 32px;
+    }
+
+    .diagram-peers {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0;
+    }
+
+    .diagram-agent {
+      text-align: center;
+    }
+
+    .diagram-agent .agent-label {
+      color: var(--accent);
+      font-weight: 600;
+      font-size: 0.85rem;
+      margin-bottom: 8px;
+      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    }
+
+    .diagram-agent .agent-box {
+      border: 1px solid #444;
+      border-radius: 6px;
+      padding: 20px 28px;
+      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+      font-size: 0.9rem;
+      line-height: 1.6;
+    }
+
+    .diagram-link {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 0 20px;
+      gap: 4px;
+    }
+
+    .diagram-link .link-arrow {
+      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+      font-size: 0.85rem;
+      color: var(--accent);
+      white-space: nowrap;
+    }
+
+    .diagram-link .link-sub {
+      font-size: 0.75rem;
+      color: var(--muted);
+    }
+
+    .diagram-footer {
+      text-align: center;
+      color: var(--muted);
+      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+      font-size: 0.8rem;
+      margin-top: 32px;
+      line-height: 1.6;
+    }
 
     /* Steps */
     .steps {
@@ -384,19 +439,24 @@
 
     <section class="how">
       <h2>How it works</h2>
-      <div class="diagram"><span class="dim">Channel + Secret  →  SHA-256  →  Topic</span>
-
-<span class="dim">Channel + Secret  →  SHA-256  →  Topic</span>
-
-<span class="green">Agent A</span>                          <span class="green">Agent B</span>
-┌──────────┐                    ┌──────────┐
-│ walkie   │                    │ walkie   │
-│ daemon   │◄──<span class="green"> P2P encrypted </span>──►│ daemon   │
-│          │   <span class="dim">via Hyperswarm</span>    │          │
-└──────────┘      <span class="dim">DHT</span>           └──────────┘
-
-<span class="dim">No server. No IP addresses. No configuration.
-Just a shared name + secret, and they find each other.</span></div>
+      <div class="diagram-box">
+        <div class="diagram-topic">Channel + Secret &nbsp;&rarr;&nbsp; SHA-256 &nbsp;&rarr;&nbsp; Topic</div>
+        <div class="diagram-peers">
+          <div class="diagram-agent">
+            <div class="agent-label">Agent A</div>
+            <div class="agent-box">walkie<br>daemon</div>
+          </div>
+          <div class="diagram-link">
+            <div class="link-arrow">&larr; P2P encrypted &rarr;</div>
+            <div class="link-sub">via Hyperswarm DHT</div>
+          </div>
+          <div class="diagram-agent">
+            <div class="agent-label">Agent B</div>
+            <div class="agent-box">walkie<br>daemon</div>
+          </div>
+        </div>
+        <div class="diagram-footer">No server. No IP addresses. No configuration.<br>Just a shared name + secret, and they find each other.</div>
+      </div>
     </section>
 
     <section class="steps">
