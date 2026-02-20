@@ -6,87 +6,61 @@ allowed-tools: Bash(walkie:*)
 
 # Walkie — Agent-to-Agent Communication
 
-## Before You Start
+CRITICAL: You MUST run `export WALKIE_ID=<your-name>` as your very first bash command before ANY walkie command. Pick a name based on your role (e.g., alice, bob, coder, reviewer). If you skip this, all messages will silently fail with "delivered to 0 recipients" and the other agent will never receive anything.
 
-**Always set your identity first.** Before running any walkie command, pick a short name for yourself (based on your role — e.g., `alice`, `coder`, `reviewer`, `coordinator`) and export it:
+## How to use walkie
 
+Step 1. Set your identity — this is MANDATORY, do not skip:
 ```bash
-export WALKIE_ID=<your-name>
-```
-
-This is required when another agent is on the same machine. Without it, messages between local agents will not be delivered. Do this even if the user doesn't mention it — it is always safe and prevents silent failures.
-
-**Check that walkie is installed.** If `walkie --version` fails, run `npm install -g walkie-sh` first.
-
-## Step-by-Step: Communicate with Another Agent
-
-1. **Set your identity:** `export WALKIE_ID=<your-name>`
-2. **Create or join a channel:** `walkie create <channel> -s <secret>` (use `create` if you're first, `join` if the other agent already created it — they're functionally identical)
-3. **Send messages:** `walkie send <channel> "your message"`
-4. **Read messages:** `walkie read <channel>` (non-blocking) or `walkie read <channel> --wait` (blocks until a message arrives, 30s default)
-5. **Clean up when done:** `walkie leave <channel>`
-
-### Example: Two agents on the same machine
-
-```bash
-# You (alice) — create channel and send a message
 export WALKIE_ID=alice
-walkie create ops-room -s mysecret
-walkie send ops-room "task complete, results at /tmp/output.json"
+```
 
-# The other agent (bob) — join and read
+Step 2. Create or join a channel:
+```bash
+walkie create <channel> -s <secret>   # if you're first
+walkie join <channel> -s <secret>     # if the other agent created it
+```
+
+Step 3. Send and read messages:
+```bash
+walkie send <channel> "your message"
+walkie read <channel>                      # non-blocking
+walkie read <channel> --wait               # blocks until a message arrives (30s)
+walkie read <channel> --wait --timeout 60  # custom timeout
+```
+
+Step 4. Clean up when done:
+```bash
+walkie leave <channel>
+```
+
+## Example
+
+```bash
+# Alice's terminal
+export WALKIE_ID=alice
+walkie create room -s secret
+walkie send room "hello from alice"
+
+# Bob's terminal
 export WALKIE_ID=bob
-walkie join ops-room -s mysecret
-walkie read ops-room
-# [14:30:05] alice: task complete, results at /tmp/output.json
+walkie join room -s secret
+walkie read room
+# [14:30:05] alice: hello from alice
 ```
 
-### Example: Waiting for a response
+## Behavior to know
 
-```bash
-walkie send ops-room "what is the status?"
-walkie read ops-room --wait --timeout 60
-# Blocks until a reply arrives or 60 seconds elapse (returns "No new messages" on timeout, exit 0)
-```
+- `delivered: 0` means the message is permanently lost — verify `delivered > 0` for critical messages
+- `read` drains the buffer — each message returned only once
+- Sender never sees their own messages
+- Two agents with the same WALKIE_ID share one buffer and will steal each other's messages
+- Daemon auto-starts on first command, runs at `~/.walkie/`
+- If the daemon crashes, re-join channels (no message persistence)
+- Debug logs: `~/.walkie/daemon.log`
 
-## Commands
+## More
 
-```bash
-walkie create <channel> -s <secret>        # Create/join a channel
-walkie join <channel> -s <secret>          # Join a channel (same as create)
-walkie send <channel> "message"            # Send to all recipients
-walkie read <channel>                      # Read pending messages (non-blocking)
-walkie read <channel> --wait               # Block until a message arrives (30s default)
-walkie read <channel> --wait --timeout 60  # Block with custom timeout
-walkie leave <channel>                     # Remove your subscription
-walkie status                              # Show channels, peers, subscribers
-walkie stop                                # Stop the daemon
-```
-
-## Important Behavior
-
-- **Set WALKIE_ID before every session.** Two agents with the same ID share one buffer — one will steal the other's messages.
-- **`delivered: 0` means the message is lost.** There is no retry or persistence. Verify `delivered > 0` in critical workflows.
-- **`read` drains the buffer.** Each message is returned only once.
-- **Sender never sees their own messages.** This is by design.
-- **`leave` only removes your subscription.** The channel stays alive for other local subscribers.
-- **Daemon auto-starts** on first command. Runs in background at `~/.walkie/`.
-- **If the daemon crashes**, all buffered messages and subscriptions are lost. It auto-restarts on the next command, but you must re-join channels.
-- **Debug logs** are at `~/.walkie/daemon.log`.
-
-## Deep-Dive Documentation
-
-| Reference | When to Use |
-|-----------|-------------|
-| [references/commands.md](references/commands.md) | Full command reference with all options and output formats |
-| [references/architecture.md](references/architecture.md) | How the daemon, IPC, and P2P layers work |
-| [references/polling-patterns.md](references/polling-patterns.md) | Agent polling strategies, multi-agent coordination patterns |
-
-## Templates
-
-| Template | Description |
-|----------|-------------|
-| [templates/same-machine-collab.sh](templates/same-machine-collab.sh) | Same-machine collaboration with WALKIE_ID |
-| [templates/two-agent-collab.sh](templates/two-agent-collab.sh) | Coordinator sends task, worker executes and reports back |
-| [templates/delegated-task.sh](templates/delegated-task.sh) | Delegate work to another agent and wait for result |
-| [templates/monitoring.sh](templates/monitoring.sh) | Monitor agent activity (uses `--as monitor` to avoid stealing messages) |
+- [references/commands.md](references/commands.md) — full command reference
+- [references/polling-patterns.md](references/polling-patterns.md) — polling strategies and patterns
+- [references/architecture.md](references/architecture.md) — how the daemon works
