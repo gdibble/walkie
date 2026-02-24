@@ -41,7 +41,12 @@ Remote uses SSH alias: `git@github-vikasprogrammer:vikasprogrammer/walkie.git`
 
 ## Website
 
-`docs/index.html` — single-page site served via GitHub Pages at walkie.sh
+`docs/index.html` — single-page static site at walkie.sh
+
+Deploy:
+```bash
+instapods deploy walkie --local docs --preset static
+```
 
 ## Key decisions
 
