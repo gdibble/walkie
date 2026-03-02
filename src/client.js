@@ -1,15 +1,19 @@
 const net = require('net')
 const path = require('path')
+const os = require('os')
 const { spawn } = require('child_process')
 const fs = require('fs')
 
-const WALKIE_DIR = process.env.WALKIE_DIR || path.join(process.env.HOME, '.walkie')
-const SOCKET_PATH = path.join(WALKIE_DIR, 'daemon.sock')
+const IS_WINDOWS = process.platform === 'win32'
+const WALKIE_DIR = process.env.WALKIE_DIR || path.join(os.homedir(), '.walkie')
+const IPC_PATH = IS_WINDOWS
+  ? '\\\\.\\pipe\\walkie-daemon'
+  : path.join(WALKIE_DIR, 'daemon.sock')
 const PID_FILE = path.join(WALKIE_DIR, 'daemon.pid')
 
 function connect() {
   return new Promise((resolve, reject) => {
-    const sock = net.connect(SOCKET_PATH)
+    const sock = net.connect(IPC_PATH)
     sock.on('connect', () => resolve(sock))
     sock.on('error', reject)
   })
@@ -58,7 +62,7 @@ async function ensureDaemon() {
   } catch {}
 
   // Clean stale socket and PID file before spawning
-  try { fs.unlinkSync(SOCKET_PATH) } catch {}
+  try { fs.unlinkSync(IPC_PATH) } catch {}
   try {
     const pid = parseInt(fs.readFileSync(PID_FILE, 'utf8').trim(), 10)
     if (!isProcessRunning(pid)) fs.unlinkSync(PID_FILE)
@@ -85,7 +89,7 @@ async function ensureDaemon() {
     } catch {}
   }
 
-  throw new Error('Failed to start walkie daemon. Check ~/.walkie/daemon.log for details')
+  throw new Error(`Failed to start walkie daemon. Check ${path.join(WALKIE_DIR, 'daemon.log')} for details`)
 }
 
 async function request(cmd, timeout) {
@@ -96,4 +100,46 @@ async function request(cmd, timeout) {
   return resp
 }
 
-module.exports = { request }
+async function streamMessages(channel, secret, clientId, abort, onMessage, persist) {
+  while (!abort.aborted) {
+    try {
+      const sock = await connect()
+      abort.socket = sock
+
+      const resp = await sendCommand(sock, {
+        action: 'read',
+        channel,
+        clientId,
+        wait: true
+      }, 0)
+
+      sock.destroy()
+      abort.socket = null
+
+      if (abort.aborted) break
+
+      if (resp.ok && resp.messages && resp.messages.length > 0) {
+        for (const msg of resp.messages) {
+          onMessage(msg)
+        }
+      }
+    } catch (e) {
+      if (abort.aborted) break
+
+      // Wait and retry on error (daemon may have restarted)
+      await new Promise(r => setTimeout(r, 2000))
+
+      if (abort.aborted) break
+
+      try {
+        await ensureDaemon()
+        // Re-join channel after daemon restart
+        const cmd = { action: 'join', channel, secret, clientId }
+        if (persist) cmd.persist = true
+        await request(cmd)
+      } catch {}
+    }
+  }
+}
+
+module.exports = { request, connect, sendCommand, ensureDaemon, streamMessages }
