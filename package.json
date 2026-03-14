@@ -30,6 +30,10 @@
     "bin/",
     "src/"
   ],
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "test:p2p": "node test/two-daemons.js"
+  },
   "engines": {
     "node": ">=18"
   },
