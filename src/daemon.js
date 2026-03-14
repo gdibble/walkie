@@ -91,10 +91,9 @@ class WalkieDaemon {
           const isNew = !ch.subscribers.has(id)
           if (isNew) {
             ch.subscribers.set(id, { messages: [], waiters: [], lastReadTs: 0 })
-            // Announce join to existing subscribers
-            if (ch.subscribers.size > 1) {
-              const announcement = { from: 'system', data: `${id} joined`, ts: Date.now() }
-              this._deliverLocal(ch, announcement, id)
+            // Announce join to local subscribers and remote peers
+            if (ch.subscribers.size > 1 || ch.peers.size > 0) {
+              this._send(cmd.channel, `${id} joined`, 'system')
             }
           }
           reply({ ok: true, channel: cmd.channel })
@@ -172,12 +171,11 @@ class WalkieDaemon {
           const id = cmd.clientId || 'default'
           const ch = this.channels.get(cmd.channel)
           if (ch) {
-            ch.subscribers.delete(id)
-            // Announce leave to remaining subscribers
-            if (ch.subscribers.size > 0) {
-              const announcement = { from: 'system', data: `${id} left`, ts: Date.now() }
-              this._deliverLocal(ch, announcement, null)
+            // Announce leave to local subscribers and remote peers before removing
+            if (ch.subscribers.size > 1 || ch.peers.size > 0) {
+              this._send(cmd.channel, `${id} left`, 'system')
             }
+            ch.subscribers.delete(id)
             // Only fully leave the channel if no subscribers remain
             if (ch.subscribers.size === 0) {
               await this._leaveChannel(cmd.channel)

@@ -2,6 +2,7 @@
 
 const { program } = require('commander')
 const { request, streamMessages } = require('../src/client')
+const { clientId, chatName, parseChannelArg } = require('../src/cli-utils')
 
 program
   .name('walkie')
@@ -29,33 +30,6 @@ How it works:
 
 Docs: https://walkie.sh`)
   .version('1.5.0')
-
-function clientId() {
-  if (process.env.WALKIE_ID) return process.env.WALKIE_ID
-
-  // Auto-derive from terminal session (unique per tab/window, stable across commands)
-  const sessionHint = process.env.TERM_SESSION_ID   // macOS Terminal.app
-    || process.env.ITERM_SESSION_ID                  // iTerm2
-    || process.env.WEZTERM_PANE                      // WezTerm
-    || process.env.TMUX_PANE                         // tmux
-    || process.env.WINDOWID                          // X11 terminals
-  if (sessionHint) {
-    return require('crypto').createHash('sha256').update(sessionHint).digest('hex').slice(0, 8)
-  }
-
-  return undefined // falls back to 'default' in daemon
-}
-
-function chatName() {
-  if (process.env.WALKIE_ID) return process.env.WALKIE_ID
-  return require('os').hostname().split('.')[0]
-}
-
-function parseChannelArg(str) {
-  const idx = str.indexOf(':')
-  if (idx === -1) return { channel: str, secret: str }
-  return { channel: str.slice(0, idx), secret: str.slice(idx + 1) }
-}
 
 async function autoJoin(channelArg, cid, persist) {
   const { channel, secret } = parseChannelArg(channelArg)
@@ -305,8 +279,7 @@ program
       console.log(`\x1b[2mCtrl+C to stop.\x1b[0m`)
       console.log()
 
-      // Announce presence
-      await request({ action: 'send', channel, message: `${agentName} is online (${cli})`, clientId: cid })
+      // Daemon broadcasts "X joined" automatically via system message
 
       // Message queue — process one at a time
       const queue = []
@@ -356,9 +329,7 @@ program
       const cleanup = async () => {
         abort.aborted = true
         if (abort.socket) try { abort.socket.destroy() } catch {}
-        try {
-          await request({ action: 'send', channel, message: `${agentName} is offline`, clientId: cid })
-        } catch {}
+        // Daemon broadcasts "X left" automatically when we disconnect
         console.log('\n\x1b[2mAgent stopped\x1b[0m')
         process.exit(0)
       }
