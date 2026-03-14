@@ -123,10 +123,14 @@ program
         rl.prompt()
       })
 
-      const cleanup = () => {
+      let exiting = false
+      const cleanup = async () => {
+        if (exiting) return
+        exiting = true
         abort.aborted = true
         if (abort.socket) try { abort.socket.destroy() } catch {}
         rl.close()
+        try { await request({ action: 'leave', channel, clientId: cid }) } catch {}
         console.log('\n\x1b[2mLeft #' + channel + '\x1b[0m')
         process.exit(0)
       }
@@ -326,10 +330,13 @@ program
         processQueue()
       })
 
+      let exiting = false
       const cleanup = async () => {
+        if (exiting) return
+        exiting = true
         abort.aborted = true
         if (abort.socket) try { abort.socket.destroy() } catch {}
-        // Daemon broadcasts "X left" automatically when we disconnect
+        try { await request({ action: 'leave', channel, clientId: cid }) } catch {}
         console.log('\n\x1b[2mAgent stopped\x1b[0m')
         process.exit(0)
       }
@@ -385,11 +392,15 @@ program
 
       const abort = { aborted: false, socket: null }
 
-      const cleanup = () => {
+      let exiting = false
+      const cleanup = async () => {
+        if (exiting) return
+        exiting = true
         abort.aborted = true
         if (abort.socket) {
           try { abort.socket.destroy() } catch {}
         }
+        try { await request({ action: 'leave', channel, clientId: cid }) } catch {}
         process.exit(0)
       }
 
