@@ -5,7 +5,29 @@ const { request, streamMessages } = require('../src/client')
 
 program
   .name('walkie')
-  .description('P2P communication CLI for AI agents')
+  .description(`P2P communication for AI agents. No server. No setup. Just talk.
+
+Getting started:
+  $ walkie chat mychannel                    Interactive chat (same name = same channel)
+  $ walkie agent mychannel                   AI agent that responds via claude/codex
+  $ walkie agent mychannel --cli codex       Use a specific AI CLI
+
+Programmatic (for agents/scripts):
+  $ walkie connect ops:secret                Connect to a channel
+  $ walkie send ops "task done"              Send a message
+  $ walkie read ops --wait                   Wait for a message
+  $ walkie watch ops:secret --pretty         Stream messages in real-time
+
+Identity:
+  Set WALKIE_ID=yourname to choose your display name.
+  Without it, 'chat' and 'agent' default to your hostname.
+
+How it works:
+  Channel + secret are hashed into a topic. Peers find each other via
+  Hyperswarm DHT. All traffic is P2P encrypted (Noise protocol).
+  A background daemon keeps connections alive between commands.
+
+Docs: https://walkie.sh`)
   .version('1.5.0')
 
 function clientId() {
@@ -65,14 +87,13 @@ function execForMessage(command, msg, channel) {
 }
 
 program
-  .command('chat <room>')
-  .description('Interactive chat room — just pick a name, everyone with the same name connects')
-  .option('--secret <secret>', 'Custom secret (default: room name)')
-  .action(async (room, opts) => {
+  .command('chat <channel>')
+  .description('Interactive chat — same channel name = same channel')
+  .option('--secret <secret>', 'Custom secret (default: channel name)')
+  .action(async (channel, opts) => {
     const readline = require('readline')
     const name = chatName()
-    const channel = room
-    const secret = opts.secret || room
+    const secret = opts.secret || channel
 
     try {
       const cid = name
@@ -82,8 +103,8 @@ program
         process.exit(1)
       }
 
-      console.log(`\x1b[1m--- walkie chat: #${room} ---\x1b[0m`)
-      console.log(`\x1b[2mYou are "${name}". Waiting for others to join with: walkie chat ${room}\x1b[0m`)
+      console.log(`\x1b[1m--- walkie chat: #${channel} ---\x1b[0m`)
+      console.log(`\x1b[2mYou are "${name}". Waiting for others to join with: walkie chat ${channel}\x1b[0m`)
       console.log(`\x1b[2mType a message and press Enter. Ctrl+C to quit.\x1b[0m`)
       console.log()
 
@@ -130,7 +151,7 @@ program
         abort.aborted = true
         if (abort.socket) try { abort.socket.destroy() } catch {}
         rl.close()
-        console.log('\n\x1b[2mLeft #' + room + '\x1b[0m')
+        console.log('\n\x1b[2mLeft #' + channel + '\x1b[0m')
         process.exit(0)
       }
 
@@ -244,14 +265,14 @@ function runCodex(prompt, sessionId, model) {
 }
 
 program
-  .command('agent <room>')
-  .description('Launch an AI agent that listens and responds on a channel')
-  .option('--secret <secret>', 'Custom secret (default: room name)')
+  .command('agent <channel>')
+  .description('AI agent that listens and responds via claude or codex')
+  .option('--secret <secret>', 'Custom secret (default: channel name)')
   .option('--cli <cli>', 'CLI to use: claude or codex (auto-detected if omitted)')
   .option('--prompt <text>', 'System prompt for the agent')
   .option('--model <model>', 'Model to use')
   .option('--name <name>', 'Agent display name')
-  .action(async (room, opts) => {
+  .action(async (channel, opts) => {
     const cli = opts.cli || detectCli()
     if (!cli) {
       console.error('Error: neither "claude" nor "codex" CLI found. Install one first.')
@@ -263,8 +284,7 @@ program
     }
 
     const agentName = opts.name || chatName() + '-agent'
-    const channel = room
-    const secret = opts.secret || room
+    const secret = opts.secret || channel
     const cid = agentName
     const askFn = cli === 'claude' ? runClaude : runCodex
 
@@ -275,9 +295,9 @@ program
         process.exit(1)
       }
 
-      console.log(`\x1b[1m--- walkie agent: #${room} ---\x1b[0m`)
+      console.log(`\x1b[1m--- walkie agent: #${channel} ---\x1b[0m`)
       console.log(`\x1b[2mAgent "${agentName}" powered by ${cli}. Listening for messages.\x1b[0m`)
-      console.log(`\x1b[2mOthers can talk to this agent with: walkie chat ${room}\x1b[0m`)
+      console.log(`\x1b[2mOthers can talk to this agent with: walkie chat ${channel}\x1b[0m`)
       console.log(`\x1b[2mCtrl+C to stop.\x1b[0m`)
       console.log()
 
@@ -300,7 +320,7 @@ program
         try {
           const prompt = opts.prompt
             ? `${opts.prompt}\n\nMessage from ${msg.from}: ${msg.data}`
-            : `You are "${agentName}", an AI agent on a walkie P2P channel called "#${room}". Someone is talking to you. Be helpful and concise.\n\nMessage from ${msg.from}: ${msg.data}`
+            : `You are "${agentName}", an AI agent on a walkie P2P channel called "#${channel}". Someone is talking to you. Be helpful and concise.\n\nMessage from ${msg.from}: ${msg.data}`
 
           const out = askFn(prompt, sessionId, opts.model)
           sessionId = out.sessionId || sessionId
@@ -411,52 +431,6 @@ program
           console.log(JSON.stringify(msg))
         }
       }, opts.persist)
-    } catch (e) {
-      console.error(`Error: ${e.message}`)
-      process.exit(1)
-    }
-  })
-
-program
-  .command('create <channel>')
-  .description('Create a channel and wait for peers')
-  .requiredOption('-s, --secret <secret>', 'Shared secret')
-  .option('--persist', 'Enable persistent message storage')
-  .action(async (channel, opts) => {
-    console.error('Note: "create" is deprecated, use "walkie connect <channel:secret>"')
-    try {
-      const cmd = { action: 'join', channel, secret: opts.secret, clientId: clientId() }
-      if (opts.persist) cmd.persist = true
-      const resp = await request(cmd)
-      if (resp.ok) {
-        console.log(`Channel "${channel}" created. Listening for peers...`)
-      } else {
-        console.error(`Error: ${resp.error}`)
-        process.exit(1)
-      }
-    } catch (e) {
-      console.error(`Error: ${e.message}`)
-      process.exit(1)
-    }
-  })
-
-program
-  .command('join <channel>')
-  .description('Join an existing channel')
-  .requiredOption('-s, --secret <secret>', 'Shared secret')
-  .option('--persist', 'Enable persistent message storage')
-  .action(async (channel, opts) => {
-    console.error('Note: "join" is deprecated, use "walkie connect <channel:secret>"')
-    try {
-      const cmd = { action: 'join', channel, secret: opts.secret, clientId: clientId() }
-      if (opts.persist) cmd.persist = true
-      const resp = await request(cmd)
-      if (resp.ok) {
-        console.log(`Joined channel "${channel}"`)
-      } else {
-        console.error(`Error: ${resp.error}`)
-        process.exit(1)
-      }
     } catch (e) {
       console.error(`Error: ${e.message}`)
       process.exit(1)
