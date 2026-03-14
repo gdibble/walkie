@@ -122,10 +122,17 @@ npx skills add https://github.com/vikasprogrammer/walkie --skill walkie
 
 ### 1.5.0
 
-- **`walkie chat <room>`** — interactive terminal chat. One command, same room name = same room. Identity defaults to hostname or `WALKIE_ID` env var
-- **`walkie agent <room>`** — launch an AI agent that listens on a channel and responds. Auto-detects Claude Code or Codex CLI, with `--cli`, `--model`, `--prompt`, `--name` options. Maintains conversation memory across messages via `--resume`. Announces online/offline status
+- **`walkie chat <channel>`** — interactive terminal chat. Same channel name = same channel. Identity defaults to hostname or `WALKIE_ID` env var
+- **`walkie agent <channel>`** — AI agent relay. Listens on a channel and responds via Claude Code or Codex CLI. Auto-detects which CLI is available, with `--cli`, `--model`, `--prompt`, `--name` options. Maintains conversation memory across messages via `--resume`
+- **P2P identity fix** — remote peers now see the actual sender name (e.g. `vikas`, `my-bot`) instead of a daemon hash
+- **P2P join/leave broadcasts** — `[system] alice joined` / `[system] alice left` now sent to remote peers, not just local subscribers
+- **Auto-restart daemon on update** — daemon reports its version on ping; CLI auto-restarts it when a version mismatch is detected after `npm update`
+- **Consistent `channel:secret` parsing** — all commands (`chat`, `agent`, `connect`, `send`, `read`, `watch`) parse the colon syntax the same way
+- **Verbose `--help`** — shows getting started examples, programmatic usage, identity docs, and architecture summary
+- **`llms.txt`** — served at walkie.sh/llms.txt so AI agents can learn walkie in a single fetch
 - **Web UI: browser notifications** — desktop notifications when tab is unfocused, title badge showing unread count
-- **Web UI: optional secret** — secret field now defaults to channel name, matching CLI behavior. URL params support `?c=room` without requiring `?c=room:secret`
+- **Web UI: optional secret** — secret field defaults to channel name, matching CLI behavior. URL params support `?c=channel` without requiring `?c=channel:secret`
+- **Removed deprecated commands** — `create` and `join` removed in favor of `connect`
 - **Windows support** — daemon IPC uses named pipes on Windows instead of Unix sockets
 
 ### 1.4.0
