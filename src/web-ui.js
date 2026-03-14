@@ -490,7 +490,7 @@ module.exports = `<!DOCTYPE html>
       <h3>join channel</h3>
       <label>Channel</label>
       <input type="text" id="inCh" placeholder="ops" autocomplete="off">
-      <label>Secret</label>
+      <label>Secret <span style="opacity:0.5;text-transform:none;letter-spacing:0">(optional — defaults to channel name)</span></label>
       <input type="text" id="inSec" placeholder="shared-secret" autocomplete="off">
       <div class="modal-btns">
         <button onclick="hideJoin()">cancel</button>
@@ -515,6 +515,37 @@ module.exports = `<!DOCTYPE html>
     let ws, clientId, active;
     const ch = new Map();
     let storedName = null;
+    let totalUnread = 0;
+    const baseTitle = 'walkie web';
+
+    // Request notification permission on first interaction
+    document.addEventListener('click', function reqPerm() {
+      if ('Notification' in window && Notification.permission === 'default') {
+        Notification.requestPermission();
+      }
+      document.removeEventListener('click', reqPerm);
+    }, { once: true });
+
+    function notify(who, text, channel) {
+      // Update title badge
+      totalUnread++;
+      document.title = '(' + totalUnread + ') ' + baseTitle;
+
+      // Browser notification when tab not focused
+      if (!document.hasFocus() && 'Notification' in window && Notification.permission === 'granted') {
+        const n = new Notification(who + ' in #' + channel, {
+          body: text.slice(0, 100),
+          tag: 'walkie-' + channel,
+          silent: false
+        });
+        n.onclick = () => { window.focus(); n.close(); };
+      }
+    }
+
+    function clearTitleBadge() {
+      totalUnread = 0;
+      document.title = baseTitle;
+    }
 
     const MAX_MSGS = 200;
 
@@ -548,11 +579,11 @@ module.exports = `<!DOCTYPE html>
 
     load();
 
-    // Auto-join from URL params: ?c=channel:secret&c=channel2:secret2
+    // Auto-join from URL params: ?c=channel:secret or ?c=channel (secret defaults to channel name)
     (new URLSearchParams(location.search)).getAll('c').forEach(p => {
       const i = p.indexOf(':');
-      if (i === -1) return;
-      const n = p.slice(0, i), s = p.slice(i + 1);
+      const n = i === -1 ? p : p.slice(0, i);
+      const s = i === -1 ? p : p.slice(i + 1);
       if (n && s && !ch.has(n)) ch.set(n, { secret: s, msgs: [], unread: 0 });
     });
 
@@ -596,6 +627,7 @@ module.exports = `<!DOCTYPE html>
           for (const x of m.messages) {
             const isSys = x.from === 'system' || x.from === 'daemon';
             c.msgs.push({ ts: fmtTime(x.ts), who: isSys ? '' : x.from, text: x.data, own: false, sys: isSys });
+            if (!isSys) notify(x.from, x.data, m.channel);
             if (m.channel !== active) {
               c.unread++;
               if (isMentioned(x.data)) c.pinged = true;
@@ -656,8 +688,8 @@ module.exports = `<!DOCTYPE html>
 
     function doJoin() {
       const n = document.getElementById('inCh').value.trim();
-      const s = document.getElementById('inSec').value.trim();
-      if (!n || !s) return;
+      const s = document.getElementById('inSec').value.trim() || n;
+      if (!n) return;
       if (!ch.has(n)) ch.set(n, { secret: s, msgs: [], unread: 0 });
       else ch.get(n).secret = s;
       ch.get(n).joining = true;
@@ -893,6 +925,8 @@ module.exports = `<!DOCTYPE html>
       if (e.key === 'Enter' && !document.getElementById('joinModal').classList.contains('hidden')) doJoin();
       if (e.key === 'Enter' && !document.getElementById('welcomeModal').classList.contains('hidden')) setWelcomeName();
     });
+
+    window.addEventListener('focus', clearTitleBadge);
 
     go();
   </script>
