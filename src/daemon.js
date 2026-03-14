@@ -348,7 +348,7 @@ class WalkieDaemon {
       for (const [name, ch] of this.channels) {
         if (ch.topicHex === msg.topic) {
           const msgId = msg.msgId || `${msg.id}-${msg.ts}`
-          const entry = { from: msg.id || remoteKey.slice(0, 8), data: msg.data, ts: msg.ts, id: msgId }
+          const entry = { from: msg.from || msg.id || remoteKey.slice(0, 8), data: msg.data, ts: msg.ts, id: msgId }
           // Dedup for persistent channels
           if (ch.persist) {
             if (ch.knownMsgIds.has(msgId)) break
@@ -425,6 +425,7 @@ class WalkieDaemon {
       topic: ch.topicHex,
       data: message,
       id: this.id,
+      from: senderClientId || this.id,
       msgId,
       ts
     }) + '\n'
