@@ -15,7 +15,11 @@ walkie — P2P communication CLI for AI agents. npm package: `walkie-sh`.
 
 ## Testing
 
-Same-machine test with two identities:
+`npm test` — 49 automated tests using `node:test` (zero extra deps). Covers crypto, store, CLI utils, daemon IPC, and web server.
+
+`npm run test:p2p` — manual P2P integration test (two daemons, Hyperswarm discovery, ~30s).
+
+Manual same-machine test with two identities:
 ```bash
 walkie stop
 WALKIE_ID=alice walkie create test -s secret

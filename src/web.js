@@ -1,8 +1,23 @@
 const http = require('http')
 const crypto = require('crypto')
+const fs = require('fs')
+const path = require('path')
+const os = require('os')
 const WebSocket = require('ws')
 const { request, connect, sendCommand, ensureDaemon } = require('./client')
 const HTML = require('./web-ui')
+
+const STATE_FILE = path.join(os.homedir(), '.walkie', 'web-state.json')
+
+function readState() {
+  try { return fs.readFileSync(STATE_FILE, 'utf8') } catch { return '{}' }
+}
+
+function writeState(body) {
+  const dir = path.dirname(STATE_FILE)
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
+  fs.writeFileSync(STATE_FILE, body, { mode: 0o600 })
+}
 
 class WebClient {
   constructor(ws) {
@@ -35,6 +50,9 @@ class WebClient {
           break
         case 'rename':
           await this.rename(msg.name)
+          break
+        case 'members':
+          await this.members(msg.channel)
           break
         case 'status':
           await this.status()
@@ -147,6 +165,14 @@ class WebClient {
     }
   }
 
+  async members(channel) {
+    if (!channel) return
+    const resp = await request({ action: 'members', channel })
+    if (resp.ok) {
+      this.send({ type: 'members', channel, members: resp.members, peers: resp.peers })
+    }
+  }
+
   async status() {
     const resp = await request({ action: 'status' })
     if (resp.ok) {
@@ -253,6 +279,23 @@ async function startWebServer({ port = 3000 } = {}) {
     if (req.method === 'GET' && (pathname === '/' || pathname === '/index.html')) {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
       res.end(HTML)
+    } else if (req.method === 'GET' && pathname === '/state') {
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(readState())
+    } else if (req.method === 'PUT' && pathname === '/state') {
+      let body = ''
+      req.on('data', chunk => { body += chunk })
+      req.on('end', () => {
+        try {
+          JSON.parse(body)
+          writeState(body)
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end('{"ok":true}')
+        } catch {
+          res.writeHead(400, { 'Content-Type': 'application/json' })
+          res.end('{"error":"invalid json"}')
+        }
+      })
     } else {
       res.writeHead(404, { 'Content-Type': 'text/plain' })
       res.end('Not found')

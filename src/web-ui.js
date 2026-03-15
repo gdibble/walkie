@@ -254,7 +254,7 @@ module.exports = `<!DOCTYPE html>
       padding: 16px;
       font-family: var(--mono);
       font-size: 0.8rem;
-      line-height: 1.8;
+      line-height: 1.5;
     }
 
     .msg { color: var(--text); }
@@ -281,7 +281,7 @@ module.exports = `<!DOCTYPE html>
       text-align: center;
     }
 
-    .msg.gap { margin-top: 12px; }
+    .msg.gap { margin-top: 6px; }
 
     .msg .tag {
       font-size: 0.6rem;
@@ -490,7 +490,7 @@ module.exports = `<!DOCTYPE html>
       <h3>join channel</h3>
       <label>Channel</label>
       <input type="text" id="inCh" placeholder="ops" autocomplete="off">
-      <label>Secret</label>
+      <label>Secret <span style="opacity:0.5;text-transform:none;letter-spacing:0">(optional — defaults to channel name)</span></label>
       <input type="text" id="inSec" placeholder="shared-secret" autocomplete="off">
       <div class="modal-btns">
         <button onclick="hideJoin()">cancel</button>
@@ -514,47 +514,83 @@ module.exports = `<!DOCTYPE html>
   <script>
     let ws, clientId, active;
     const ch = new Map();
+    const members = new Map(); // channel -> { members: [], peers: 0 }
     let storedName = null;
+    let totalUnread = 0;
+    const baseTitle = 'walkie web';
+
+    // Request notification permission on first interaction
+    document.addEventListener('click', function reqPerm() {
+      if ('Notification' in window && Notification.permission === 'default') {
+        Notification.requestPermission();
+      }
+      document.removeEventListener('click', reqPerm);
+    }, { once: true });
+
+    function notify(who, text, channel) {
+      // Update title badge
+      totalUnread++;
+      document.title = '(' + totalUnread + ') ' + baseTitle;
+
+      // Browser notification when tab not focused
+      if (!document.hasFocus() && 'Notification' in window && Notification.permission === 'granted') {
+        const n = new Notification(who + ' in #' + channel, {
+          body: text.slice(0, 100),
+          tag: 'walkie-' + channel,
+          silent: false
+        });
+        n.onclick = () => { window.focus(); n.close(); };
+      }
+    }
+
+    function clearTitleBadge() {
+      totalUnread = 0;
+      document.title = baseTitle;
+    }
 
     const MAX_MSGS = 200;
+    let saveTimer = null;
 
     function save() {
       const data = {};
       for (const [n, c] of ch) {
         data[n] = { secret: c.secret, msgs: c.msgs.slice(-MAX_MSGS) };
       }
-      sessionStorage.setItem('walkie_ch', JSON.stringify(data));
-      if (storedName) sessionStorage.setItem('walkie_name', storedName);
-      else sessionStorage.removeItem('walkie_name');
+      const state = { channels: data, active: active || null, name: storedName || null };
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(() => {
+        fetch('/state', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(state)
+        }).catch(() => {});
+      }, 500);
     }
 
-    function load() {
+    async function load() {
       try {
-        const raw = sessionStorage.getItem('walkie_ch');
-        if (raw) {
-          const data = JSON.parse(raw);
-          for (const [n, v] of Object.entries(data)) {
+        const resp = await fetch('/state');
+        const state = await resp.json();
+        if (state.channels) {
+          for (const [n, v] of Object.entries(state.channels)) {
             if (typeof v === 'string') {
-              // legacy format: secret only
               if (v) ch.set(n, { secret: v, msgs: [], unread: 0 });
             } else if (v && v.secret) {
               ch.set(n, { secret: v.secret, msgs: v.msgs || [], unread: 0 });
             }
           }
         }
-        storedName = sessionStorage.getItem('walkie_name') || null;
+        storedName = state.name || null;
+        if (state.active && ch.has(state.active)) active = state.active;
       } catch {}
     }
 
-    load();
-
-    // Auto-join from URL params: ?c=channel:secret&c=channel2:secret2
-    (new URLSearchParams(location.search)).getAll('c').forEach(p => {
-      const i = p.indexOf(':');
-      if (i === -1) return;
-      const n = p.slice(0, i), s = p.slice(i + 1);
-      if (n && s && !ch.has(n)) ch.set(n, { secret: s, msgs: [], unread: 0 });
-    });
+    function joinAll() {
+      for (const [n, c] of ch) {
+        if (c.secret) { c.joining = true; tx({ type: 'join', channel: n, secret: c.secret }); }
+      }
+      sidebar(); renderChat();
+    }
 
     function go() {
       setS('connecting');
@@ -562,9 +598,6 @@ module.exports = `<!DOCTYPE html>
       ws = new WebSocket(p + '//' + location.host + '/ws');
       ws.onopen = () => {
         setS('connected');
-        for (const [n, c] of ch) {
-          if (c.secret) { c.joining = true; tx({ type: 'join', channel: n, secret: c.secret }); }
-        }
         sidebar(); renderChat();
       };
       ws.onmessage = e => {
@@ -574,18 +607,27 @@ module.exports = `<!DOCTYPE html>
           showName();
           if (storedName && storedName !== clientId) {
             tx({ type: 'rename', name: storedName });
-          } else if (!storedName && clientId.startsWith('web-')) {
-            document.getElementById('welcomeModal').classList.remove('hidden');
-            document.getElementById('welcomeName').focus();
+          } else {
+            joinAll();
+            if (!storedName && clientId.startsWith('web-')) {
+              document.getElementById('welcomeModal').classList.remove('hidden');
+              document.getElementById('welcomeName').focus();
+            }
           }
           return;
         }
-        if (m.type === 'renamed') { clientId = m.clientId; storedName = clientId; save(); showName(); return; }
+        if (m.type === 'renamed') { clientId = m.clientId; storedName = clientId; save(); showName(); joinAll(); return; }
+        if (m.type === 'members') {
+          members.set(m.channel, { members: m.members || [], peers: m.peers || 0 });
+          if (m.channel === active) renderChatBar();
+          return;
+        }
         if (m.type === 'joined') {
           const isNew = !ch.has(m.channel) || ch.get(m.channel).msgs.length === 0;
           if (!ch.has(m.channel)) ch.set(m.channel, { secret: null, msgs: [], unread: 0 });
           ch.get(m.channel).joining = false;
           if (isNew) sysMsg(m.channel, 'joined #' + m.channel);
+          tx({ type: 'members', channel: m.channel });
           if (!active) sw(m.channel);
           else if (m.channel === active) renderChat();
           sidebar();
@@ -595,7 +637,10 @@ module.exports = `<!DOCTYPE html>
           const c = ch.get(m.channel);
           for (const x of m.messages) {
             const isSys = x.from === 'system' || x.from === 'daemon';
+            // Skip own join/leave notifications
+            if (isSys && clientId && (x.data === clientId + ' joined' || x.data === clientId + ' left')) continue;
             c.msgs.push({ ts: fmtTime(x.ts), who: isSys ? '' : x.from, text: x.data, own: false, sys: isSys });
+            if (!isSys) notify(x.from, x.data, m.channel);
             if (m.channel !== active) {
               c.unread++;
               if (isMentioned(x.data)) c.pinged = true;
@@ -656,8 +701,8 @@ module.exports = `<!DOCTYPE html>
 
     function doJoin() {
       const n = document.getElementById('inCh').value.trim();
-      const s = document.getElementById('inSec').value.trim();
-      if (!n || !s) return;
+      const s = document.getElementById('inSec').value.trim() || n;
+      if (!n) return;
       if (!ch.has(n)) ch.set(n, { secret: s, msgs: [], unread: 0 });
       else ch.get(n).secret = s;
       ch.get(n).joining = true;
@@ -674,6 +719,7 @@ module.exports = `<!DOCTYPE html>
       active = n;
       const c = ch.get(n);
       if (c) { c.unread = 0; c.pinged = false; }
+      tx({ type: 'members', channel: n });
       sidebar(); renderChat();
     }
 
@@ -750,11 +796,22 @@ module.exports = `<!DOCTYPE html>
 
     function memberInfo() {
       if (!active) return '';
-      const users = getKnownUsers();
-      if (users.length === 0) return '';
-      const names = users.slice(0, 3).join(', ');
-      const extra = users.length > 3 ? ' +' + (users.length - 3) : '';
-      return names + extra;
+      const m = members.get(active);
+      if (!m) return '';
+      const local = m.members.filter(n => n !== clientId);
+      const parts = [];
+      if (local.length > 0) {
+        const names = local.slice(0, 3).join(', ');
+        const extra = local.length > 3 ? ' +' + (local.length - 3) : '';
+        parts.push(names + extra);
+      }
+      if (m.peers > 0) parts.push(m.peers + ' peer' + (m.peers > 1 ? 's' : ''));
+      return parts.join(' · ');
+    }
+
+    function renderChatBar() {
+      const bar = document.querySelector('.chat-bar .members');
+      if (bar) bar.textContent = memberInfo();
     }
 
     function isWebUser(name) {
@@ -894,7 +951,23 @@ module.exports = `<!DOCTYPE html>
       if (e.key === 'Enter' && !document.getElementById('welcomeModal').classList.contains('hidden')) setWelcomeName();
     });
 
-    go();
+    // Refresh members every 10s
+    setInterval(() => {
+      if (active && ch.has(active)) tx({ type: 'members', channel: active });
+    }, 10000);
+
+    window.addEventListener('focus', clearTitleBadge);
+
+    // Load state from server, apply URL params, then connect
+    load().then(() => {
+      (new URLSearchParams(location.search)).getAll('c').forEach(p => {
+        const i = p.indexOf(':');
+        const n = i === -1 ? p : p.slice(0, i);
+        const s = i === -1 ? p : p.slice(i + 1);
+        if (n && s && !ch.has(n)) ch.set(n, { secret: s, msgs: [], unread: 0 });
+      });
+      go();
+    });
   </script>
 </body>
 </html>`;

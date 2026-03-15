@@ -90,11 +90,12 @@ class WalkieDaemon {
           const ch = this.channels.get(cmd.channel)
           const isNew = !ch.subscribers.has(id)
           if (isNew) {
-            ch.subscribers.set(id, { messages: [], waiters: [], lastReadTs: 0 })
-            // Announce join to existing subscribers
-            if (ch.subscribers.size > 1) {
-              const announcement = { from: 'system', data: `${id} joined`, ts: Date.now() }
-              this._deliverLocal(ch, announcement, id)
+            ch.subscribers.set(id, { messages: [], waiters: [], lastReadTs: 0, lastSeen: Date.now() })
+          } else {
+            ch.subscribers.get(id).lastSeen = Date.now()
+            // Announce join to local subscribers and remote peers
+            if (ch.subscribers.size > 1 || ch.peers.size > 0) {
+              this._send(cmd.channel, `${id} joined`, 'system')
             }
           }
           reply({ ok: true, channel: cmd.channel })
@@ -102,6 +103,8 @@ class WalkieDaemon {
         }
         case 'send': {
           const id = cmd.clientId || 'default'
+          const ch = this.channels.get(cmd.channel)
+          if (ch && ch.subscribers.has(id)) ch.subscribers.get(id).lastSeen = Date.now()
           const count = this._send(cmd.channel, cmd.message, id)
           reply({ ok: true, delivered: count })
           break
@@ -113,9 +116,10 @@ class WalkieDaemon {
 
           // Auto-register subscriber on read if not yet joined
           if (!ch.subscribers.has(id)) {
-            ch.subscribers.set(id, { messages: [], waiters: [], lastReadTs: 0 })
+            ch.subscribers.set(id, { messages: [], waiters: [], lastReadTs: 0, lastSeen: Date.now() })
           }
           const sub = ch.subscribers.get(id)
+          sub.lastSeen = Date.now()
 
           // Merge persisted messages for persistent channels
           if (ch.persist) {
@@ -172,12 +176,11 @@ class WalkieDaemon {
           const id = cmd.clientId || 'default'
           const ch = this.channels.get(cmd.channel)
           if (ch) {
-            ch.subscribers.delete(id)
-            // Announce leave to remaining subscribers
-            if (ch.subscribers.size > 0) {
-              const announcement = { from: 'system', data: `${id} left`, ts: Date.now() }
-              this._deliverLocal(ch, announcement, null)
+            // Announce leave to local subscribers and remote peers before removing
+            if (ch.subscribers.size > 1 || ch.peers.size > 0) {
+              this._send(cmd.channel, `${id} left`, 'system')
             }
+            ch.subscribers.delete(id)
             // Only fully leave the channel if no subscribers remain
             if (ch.subscribers.size === 0) {
               await this._leaveChannel(cmd.channel)
@@ -201,8 +204,22 @@ class WalkieDaemon {
           reply({ ok: true, channels, daemonId: this.id })
           break
         }
+        case 'members': {
+          const ch = this.channels.get(cmd.channel)
+          if (!ch) { reply({ ok: false, error: 'not joined' }); break }
+          const now = Date.now()
+          const alive = []
+          for (const [id, sub] of ch.subscribers) {
+            if (sub.waiters.length > 0 || (now - (sub.lastSeen || 0)) < 60000) {
+              alive.push(id)
+            }
+          }
+          reply({ ok: true, members: alive, peers: ch.peers.size })
+          break
+        }
         case 'ping': {
-          reply({ ok: true })
+          const pkg = require('../package.json')
+          reply({ ok: true, version: pkg.version })
           break
         }
         case 'stop': {
@@ -348,7 +365,7 @@ class WalkieDaemon {
       for (const [name, ch] of this.channels) {
         if (ch.topicHex === msg.topic) {
           const msgId = msg.msgId || `${msg.id}-${msg.ts}`
-          const entry = { from: msg.id || remoteKey.slice(0, 8), data: msg.data, ts: msg.ts, id: msgId }
+          const entry = { from: msg.from || msg.id || remoteKey.slice(0, 8), data: msg.data, ts: msg.ts, id: msgId }
           // Dedup for persistent channels
           if (ch.persist) {
             if (ch.knownMsgIds.has(msgId)) break
@@ -425,6 +442,7 @@ class WalkieDaemon {
       topic: ch.topicHex,
       data: message,
       id: this.id,
+      from: senderClientId || this.id,
       msgId,
       ts
     }) + '\n'
