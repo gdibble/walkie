@@ -90,7 +90,9 @@ class WalkieDaemon {
           const ch = this.channels.get(cmd.channel)
           const isNew = !ch.subscribers.has(id)
           if (isNew) {
-            ch.subscribers.set(id, { messages: [], waiters: [], lastReadTs: 0 })
+            ch.subscribers.set(id, { messages: [], waiters: [], lastReadTs: 0, lastSeen: Date.now() })
+          } else {
+            ch.subscribers.get(id).lastSeen = Date.now()
             // Announce join to local subscribers and remote peers
             if (ch.subscribers.size > 1 || ch.peers.size > 0) {
               this._send(cmd.channel, `${id} joined`, 'system')
@@ -101,6 +103,8 @@ class WalkieDaemon {
         }
         case 'send': {
           const id = cmd.clientId || 'default'
+          const ch = this.channels.get(cmd.channel)
+          if (ch && ch.subscribers.has(id)) ch.subscribers.get(id).lastSeen = Date.now()
           const count = this._send(cmd.channel, cmd.message, id)
           reply({ ok: true, delivered: count })
           break
@@ -112,9 +116,10 @@ class WalkieDaemon {
 
           // Auto-register subscriber on read if not yet joined
           if (!ch.subscribers.has(id)) {
-            ch.subscribers.set(id, { messages: [], waiters: [], lastReadTs: 0 })
+            ch.subscribers.set(id, { messages: [], waiters: [], lastReadTs: 0, lastSeen: Date.now() })
           }
           const sub = ch.subscribers.get(id)
+          sub.lastSeen = Date.now()
 
           // Merge persisted messages for persistent channels
           if (ch.persist) {
@@ -197,6 +202,19 @@ class WalkieDaemon {
             channels[name] = info
           }
           reply({ ok: true, channels, daemonId: this.id })
+          break
+        }
+        case 'members': {
+          const ch = this.channels.get(cmd.channel)
+          if (!ch) { reply({ ok: false, error: 'not joined' }); break }
+          const now = Date.now()
+          const alive = []
+          for (const [id, sub] of ch.subscribers) {
+            if (sub.waiters.length > 0 || (now - (sub.lastSeen || 0)) < 60000) {
+              alive.push(id)
+            }
+          }
+          reply({ ok: true, members: alive, peers: ch.peers.size })
           break
         }
         case 'ping': {

@@ -20,7 +20,7 @@ AI agents are isolated. When two agents need to collaborate, there's no simple w
 
 ### Chat between machines
 
-Same room name = same room. That's it.
+Same channel name = same channel. That's it.
 
 ```bash
 # Your laptop
@@ -41,44 +41,45 @@ Launch an AI agent that listens on a channel and responds using Claude Code or C
 
 ```bash
 # Start an agent (auto-detects claude or codex)
-walkie agent myroom
+walkie agent mychannel
 
 # Or pick explicitly
-walkie agent myroom --cli codex
-walkie agent myroom --cli claude --model haiku --name my-bot
+walkie agent mychannel --cli codex
+walkie agent mychannel --cli claude --model haiku --name my-bot
 ```
 
-Now anyone on that room talks to your AI:
+Now anyone on that channel talks to your AI:
 
 ```bash
-walkie chat myroom
+walkie chat mychannel
 > hey, what's the weather API endpoint?
 # agent responds automatically
 ```
 
-The agent maintains conversation memory across messages via `--resume`.
+The agent maintains conversation memory across messages.
 
 ### Programmatic usage (for agents)
 
 ```bash
-walkie connect ops-room:mysecret
-walkie send ops-room "task complete, results ready"
-walkie read ops-room --wait
-walkie watch ops-room:mysecret --exec 'echo $WALKIE_MSG'
+walkie connect ops:mysecret
+walkie send ops "task complete, results ready"
+walkie read ops --wait
+walkie watch ops:mysecret --exec 'echo $WALKIE_MSG'
 ```
 
 ## Commands
 
+All channel args accept `channel:secret` format. No colon = secret defaults to channel name.
+
 ```
-walkie chat <room>                       Interactive chat (room name = secret)
-walkie agent <room>                      AI agent relay (claude/codex)
-walkie connect <channel>:<secret>        Connect to a channel
+walkie chat <channel>                    Interactive chat. Same name = same room
+walkie agent <channel>                   AI agent that responds via claude/codex
+walkie connect <channel>                 Join a channel programmatically
 walkie send <channel> "message"          Send a message (or pipe from stdin)
-walkie read <channel>                    Read pending messages
-walkie read <channel> --wait             Block until a message arrives
-walkie watch <channel>:<secret>          Stream messages (JSONL, --pretty, --exec)
-walkie web                               Web-based chat UI
-walkie status                            Show active channels & peers
+walkie read <channel>                    Read pending messages (--wait, --timeout)
+walkie watch <channel>                   Stream messages (--pretty, --exec, --persist)
+walkie web                               Browser chat UI (-p PORT, -c channel:secret)
+walkie status                            Show active channels, peers & buffers
 walkie leave <channel>                   Leave a channel
 walkie stop                              Stop the daemon
 ```
