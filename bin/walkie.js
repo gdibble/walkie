@@ -154,11 +154,12 @@ function detectCli() {
   return null
 }
 
-function runClaude(prompt, sessionId, model) {
+function runClaude(prompt, sessionId, model, extraArgs) {
   const { spawnSync } = require('child_process')
   const args = ['-p', prompt, '--output-format', 'json']
   if (sessionId) args.push('--resume', sessionId)
   if (model) args.push('--model', model)
+  if (extraArgs) args.push(...extraArgs)
 
   const result = spawnSync('claude', args, {
     timeout: 300000,
@@ -183,7 +184,7 @@ function runClaude(prompt, sessionId, model) {
   return out
 }
 
-function runCodex(prompt, sessionId, model) {
+function runCodex(prompt, sessionId, model, extraArgs) {
   const { spawnSync } = require('child_process')
   const fs = require('fs')
   const os = require('os')
@@ -192,6 +193,7 @@ function runCodex(prompt, sessionId, model) {
   const outFile = path.join(os.tmpdir(), `walkie-codex-${Date.now()}.txt`)
   const args = ['exec', '--ephemeral', '-o', outFile]
   if (model) args.push('-c', `model="${model}"`)
+  if (extraArgs) args.push(...extraArgs)
 
   // Resume previous session if we have one
   if (sessionId) {
@@ -252,6 +254,7 @@ program
   .option('--prompt <text>', 'System prompt for the agent')
   .option('--model <model>', 'Model to use')
   .option('--name <name>', 'Agent display name')
+  .option('--agent-args <args>', 'Extra CLI arguments passed to claude/codex (e.g. "--dangerously-skip-permissions")')
   .action(async (channelArg, opts) => {
     const cli = opts.cli || detectCli()
     if (!cli) {
@@ -268,6 +271,7 @@ program
     const agentName = opts.name || chatName() + '-agent'
     const secret = opts.secret || parsed.secret
     const cid = agentName
+    const extraArgs = opts.agentArgs ? opts.agentArgs.split(/\s+/) : null
     const askFn = cli === 'claude' ? runClaude : runCodex
 
     try {
@@ -308,7 +312,7 @@ program
             ? `${opts.prompt}\n\nMessage from ${msg.from}: ${msg.data}`
             : `You are "${agentName}", an AI agent on a walkie P2P channel called "#${channel}". Someone is talking to you. Be helpful and concise.\n\nMessage from ${msg.from}: ${msg.data}`
 
-          const out = askFn(prompt, sessionId, opts.model)
+          const out = askFn(prompt, sessionId, opts.model, extraArgs)
           sessionId = out.sessionId || sessionId
 
           if (out.text && out.text.trim()) {
@@ -379,6 +383,7 @@ program
   .option('--brain <cli>', 'CLI for brain (default: codex if available, else claude)')
   .option('--exec-cli <cli>', 'CLI for executor (default: claude if available, else codex)')
   .option('--model <model>', 'Model for both agents')
+  .option('--agent-args <args>', 'Extra CLI arguments passed to claude/codex (e.g. "--dangerously-skip-permissions")')
   .action(async (channelArg, opts) => {
     const { spawn } = require('child_process')
     const readline = require('readline')
@@ -430,6 +435,7 @@ program
     const buildArgs = (name, cli, prompt) => {
       const args = ['agent', channelArg, '--name', name, '--cli', cli, '--prompt', prompt]
       if (opts.model) args.push('--model', opts.model)
+      if (opts.agentArgs) args.push('--agent-args', opts.agentArgs)
       return args
     }
 
