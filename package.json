@@ -23,6 +23,7 @@
     "llm",
     "multi-agent"
   ],
+  "main": "./src/api.js",
   "bin": {
     "walkie": "./bin/walkie.js"
   },
