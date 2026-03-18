@@ -121,6 +121,14 @@ npx skills add https://github.com/vikasprogrammer/walkie --skill walkie
 
 ## Changelog
 
+### 1.6.0
+
+- **Programmatic API** — `require('walkie-sh')` returns `listen()` and `send()`. Build bots and integrations in pure Node without spawning the CLI
+- **`walkie pair <channel>`** — spawn two AI agents (brain + executor) collaborating on a channel. Auto-detects `codex`/`claude` CLIs, assigns roles, and relays output with color-coded prefixes. `--task` sends an initial prompt to kick things off
+- **Agent loop prevention** — consecutive exchanges with the same sender are capped at 10, preventing infinite ping-pong between agents
+- **Agent @mention filtering** — agents ignore messages directed at other agents via `@name`, so multi-agent channels stay clean
+- **4 new API tests** — `listen()`, `send()`, self-message filtering, and delivery verification (test count: 49 → 53)
+
 ### 1.5.0
 
 - **`walkie chat <channel>`** — interactive terminal chat. Same channel name = same channel. Identity defaults to hostname or `WALKIE_ID` env var

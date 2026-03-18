@@ -154,11 +154,12 @@ function detectCli() {
   return null
 }
 
-function runClaude(prompt, sessionId, model) {
+function runClaude(prompt, sessionId, model, extraArgs) {
   const { spawnSync } = require('child_process')
   const args = ['-p', prompt, '--output-format', 'json']
   if (sessionId) args.push('--resume', sessionId)
   if (model) args.push('--model', model)
+  if (extraArgs) args.push(...extraArgs)
 
   const result = spawnSync('claude', args, {
     timeout: 300000,
@@ -183,7 +184,7 @@ function runClaude(prompt, sessionId, model) {
   return out
 }
 
-function runCodex(prompt, sessionId, model) {
+function runCodex(prompt, sessionId, model, extraArgs) {
   const { spawnSync } = require('child_process')
   const fs = require('fs')
   const os = require('os')
@@ -192,6 +193,7 @@ function runCodex(prompt, sessionId, model) {
   const outFile = path.join(os.tmpdir(), `walkie-codex-${Date.now()}.txt`)
   const args = ['exec', '--ephemeral', '-o', outFile]
   if (model) args.push('-c', `model="${model}"`)
+  if (extraArgs) args.push(...extraArgs)
 
   // Resume previous session if we have one
   if (sessionId) {
@@ -252,6 +254,7 @@ program
   .option('--prompt <text>', 'System prompt for the agent')
   .option('--model <model>', 'Model to use')
   .option('--name <name>', 'Agent display name')
+  .option('--agent-args <args>', 'Extra CLI arguments passed to claude/codex (e.g. "--dangerously-skip-permissions")')
   .action(async (channelArg, opts) => {
     const cli = opts.cli || detectCli()
     if (!cli) {
@@ -268,6 +271,7 @@ program
     const agentName = opts.name || chatName() + '-agent'
     const secret = opts.secret || parsed.secret
     const cid = agentName
+    const extraArgs = opts.agentArgs ? opts.agentArgs.split(/\s+/) : null
     const askFn = cli === 'claude' ? runClaude : runCodex
 
     try {
@@ -290,6 +294,11 @@ program
       let processing = false
       let sessionId = null
 
+      // Loop prevention: track consecutive exchanges with same sender
+      let lastSender = null
+      let consecutiveCount = 0
+      const MAX_CONSECUTIVE = 10
+
       async function processQueue() {
         if (processing || queue.length === 0) return
         processing = true
@@ -303,7 +312,7 @@ program
             ? `${opts.prompt}\n\nMessage from ${msg.from}: ${msg.data}`
             : `You are "${agentName}", an AI agent on a walkie P2P channel called "#${channel}". Someone is talking to you. Be helpful and concise.\n\nMessage from ${msg.from}: ${msg.data}`
 
-          const out = askFn(prompt, sessionId, opts.model)
+          const out = askFn(prompt, sessionId, opts.model, extraArgs)
           sessionId = out.sessionId || sessionId
 
           if (out.text && out.text.trim()) {
@@ -311,6 +320,14 @@ program
             const display = out.text.trim()
             console.log(`\x1b[2m${respTime}\x1b[0m \x1b[1m\x1b[36m${agentName}\x1b[0m: ${display.slice(0, 200)}${display.length > 200 ? '...' : ''}`)
             await request({ action: 'send', channel, message: display, clientId: cid })
+
+            // Track consecutive exchanges
+            if (msg.from === lastSender) {
+              consecutiveCount++
+            } else {
+              lastSender = msg.from
+              consecutiveCount = 1
+            }
           }
         } catch (e) {
           console.error(`\x1b[31m${cli} error: ${e.message}\x1b[0m`)
@@ -326,6 +343,14 @@ program
       streamMessages(channel, secret, cid, abort, (msg) => {
         // Don't respond to own messages or system messages
         if (msg.from === cid || msg.from === 'system') return
+        // @mention filtering: if directed at someone else, ignore
+        const mentions = (msg.data.match(/@([\w-]+)/g) || []).map(m => m.slice(1))
+        if (mentions.length > 0 && !mentions.includes(agentName)) return
+        // Loop prevention: cap consecutive exchanges with the same sender
+        if (msg.from === lastSender && consecutiveCount >= MAX_CONSECUTIVE) {
+          console.log(`\x1b[2m[paused] ${MAX_CONSECUTIVE} consecutive exchanges with ${msg.from} — waiting for someone else\x1b[0m`)
+          return
+        }
         queue.push(msg)
         processQueue()
       })
@@ -348,6 +373,121 @@ program
       console.error(`Error: ${e.message}`)
       process.exit(1)
     }
+  })
+
+program
+  .command('pair <channel>')
+  .description('Start two AI agents collaborating on a channel (brain + executor)')
+  .option('--secret <secret>', 'Channel secret')
+  .option('--task <text>', 'Initial task to kick things off')
+  .option('--brain <cli>', 'CLI for brain (default: codex if available, else claude)')
+  .option('--exec-cli <cli>', 'CLI for executor (default: claude if available, else codex)')
+  .option('--model <model>', 'Model for both agents')
+  .option('--agent-args <args>', 'Extra CLI arguments passed to claude/codex (e.g. "--dangerously-skip-permissions")')
+  .action(async (channelArg, opts) => {
+    const { spawn } = require('child_process')
+    const readline = require('readline')
+    const parsed = parseChannelArg(channelArg)
+    const channel = parsed.channel
+    const secret = opts.secret || parsed.secret
+
+    // Detect available CLIs
+    const available = []
+    const { spawnSync } = require('child_process')
+    for (const cmd of ['codex', 'claude']) {
+      const r = spawnSync('which', [cmd], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+      if (r.status === 0) available.push(cmd)
+    }
+    if (available.length === 0) {
+      console.error('Error: neither "claude" nor "codex" CLI found.')
+      process.exit(1)
+    }
+
+    // Assign CLIs — prefer codex for brain, claude for executor
+    let brainCli = opts.brain
+    let execCli = opts.execCli
+    if (!brainCli && !execCli) {
+      if (available.includes('codex') && available.includes('claude')) {
+        brainCli = 'codex'
+        execCli = 'claude'
+      } else {
+        brainCli = available[0]
+        execCli = available[0]
+      }
+    } else {
+      brainCli = brainCli || available[0]
+      execCli = execCli || available[0]
+    }
+
+    const brainName = `${channel}-brain`
+    const execName = `${channel}-exec`
+    const brainPrompt = `You are the brain/strategist on walkie channel "#${channel}". Observe what @${execName} reports and provide guidance. Address tasks to @${execName}. Be concise and decisive.`
+    const execPrompt = `You are the executor on walkie channel "#${channel}". Carry out tasks and report results. When you need a decision, ask @${brainName}. Report progress to @${brainName}. Be concise.`
+
+    console.log(`\x1b[1m--- walkie pair: #${channel} ---\x1b[0m`)
+    console.log(`\x1b[2mBrain: "${brainName}" (${brainCli})\x1b[0m`)
+    console.log(`\x1b[2mExecutor: "${execName}" (${execCli})\x1b[0m`)
+    console.log(`\x1b[2mCtrl+C to stop both.\x1b[0m`)
+    console.log()
+
+    // Build args for child processes
+    const scriptPath = __filename
+    const buildArgs = (name, cli, prompt) => {
+      const args = ['agent', channelArg, '--name', name, '--cli', cli, '--prompt', prompt]
+      if (opts.model) args.push('--model', opts.model)
+      if (opts.agentArgs) args.push('--agent-args', opts.agentArgs)
+      return args
+    }
+
+    const brainProc = spawn(process.execPath, [scriptPath, ...buildArgs(brainName, brainCli, brainPrompt)], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, WALKIE_ID: brainName }
+    })
+
+    const execProc = spawn(process.execPath, [scriptPath, ...buildArgs(execName, execCli, execPrompt)], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, WALKIE_ID: execName }
+    })
+
+    // Prefix and display output from both agents
+    const pipe = (proc, label, color) => {
+      readline.createInterface({ input: proc.stdout }).on('line', l =>
+        console.log(`${color}[${label}]\x1b[0m ${l}`))
+      readline.createInterface({ input: proc.stderr }).on('line', l =>
+        console.error(`${color}[${label}]\x1b[0m \x1b[31m${l}\x1b[0m`))
+    }
+    pipe(brainProc, 'brain', '\x1b[35m')
+    pipe(execProc, 'exec', '\x1b[36m')
+
+    // Send initial task to brain after agents are ready
+    if (opts.task) {
+      setTimeout(async () => {
+        try {
+          const cid = 'pair-user'
+          await request({ action: 'join', channel, secret, clientId: cid })
+          await request({ action: 'send', channel, message: `@${brainName} ${opts.task}`, clientId: cid })
+          console.log(`\x1b[2mTask sent → @${brainName}\x1b[0m`)
+        } catch (e) {
+          console.error(`Failed to send task: ${e.message}`)
+        }
+      }, 3000)
+    }
+
+    // Cleanup
+    let exiting = false
+    const cleanup = () => {
+      if (exiting) return
+      exiting = true
+      brainProc.kill('SIGTERM')
+      execProc.kill('SIGTERM')
+      console.log('\n\x1b[2mBoth agents stopped.\x1b[0m')
+      setTimeout(() => process.exit(0), 500)
+    }
+
+    process.on('SIGINT', cleanup)
+    process.on('SIGTERM', cleanup)
+    brainProc.on('exit', () => { if (!exiting) cleanup() })
+    execProc.on('exit', () => { if (!exiting) cleanup() })
   })
 
 program
